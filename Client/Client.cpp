@@ -17,7 +17,7 @@ int main( )
 	try {
 		Client Client(ClientConfig);
 
-		Packet packet(Packet::ID::INIT);
+		Packet packet;
 
 		char buffer[] = "Hello World!";
 		memcpy(packet.m_Data, buffer, sizeof(buffer));
@@ -31,7 +31,8 @@ int main( )
 		if( !Client.Recv(&response) )
 			std::cout << "Failed to recv packet" << std::endl;
 
-		std::cout << "Response: " << std::hex << (int)response.m_Data[0] << " " << (int)response.m_Data[1] << std::endl;
+		for (int i = 0; i < response.m_Header.Size; i++)
+			std::cout << response.m_Data[i] << std::endl;
 	}
 	catch ( std::exception& e )
 	{
