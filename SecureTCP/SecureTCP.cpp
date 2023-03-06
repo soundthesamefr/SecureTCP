@@ -1,3 +1,9 @@
+/*
+	(C) 2023 paging, All rights reserved.
+
+	GNU General Public License v3.0
+*/
+
 #include "SecureTCP.h"
 
 STCP::Server::Server( STCP::Config server_config, std::function<void( Packet&, Server*, SOCKET )> handler ) : m_Config( server_config ), m_Handler( handler )

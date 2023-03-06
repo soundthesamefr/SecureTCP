@@ -1,3 +1,9 @@
+/*
+	(C) 2023 paging, All rights reserved.
+
+	GNU General Public License v3.0
+*/
+
 #include "Client.h"
 
 int main( )
@@ -12,9 +18,11 @@ int main( )
 		Client Client(ClientConfig);
 
 		Packet packet(Packet::ID::REQUEST);
-		packet.m_Data[0] = 0x32;
-		packet.m_Data[1] = 0x12;
-		packet.m_Header.m_Size = 2;
+
+		char buffer[] = "Hello World!";
+		memcpy(packet.m_Data, buffer, sizeof(buffer));
+
+		packet.m_Header.m_Size = sizeof(buffer);
 
 		if( !Client.Send(packet) )
 			std::cout << "Failed to send packet" << std::endl;
@@ -29,4 +37,6 @@ int main( )
 	{
 		std::cout << e.what( ) << std::endl;
 	}
+
+	return 0;
 }
