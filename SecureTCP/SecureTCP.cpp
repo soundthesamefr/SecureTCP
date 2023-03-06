@@ -301,6 +301,7 @@ void STCP::Server::HandleClient( SOCKET client_socket, Server* server )
 	}
 
 exit:
+	server->m_KeyMap.erase( client_socket );
 	closesocket( client_socket );
 }
 
