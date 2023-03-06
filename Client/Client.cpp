@@ -17,7 +17,7 @@ int main( )
 	try {
 		Client Client(ClientConfig);
 
-		Packet packet(Packet::ID::REQUEST);
+		Packet packet(Packet::ID::INIT);
 
 		char buffer[] = "Hello World!";
 		memcpy(packet.m_Data, buffer, sizeof(buffer));

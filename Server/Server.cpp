@@ -12,7 +12,7 @@ void HandlePacket( STCP::Packet& packet, STCP::Server* server, SOCKET client_soc
 
 	std::printf( "Data: %s\n", packet.m_Data );
 
-	STCP::Packet response( STCP::Packet::ID::RESPONSE );
+	STCP::Packet response( STCP::Packet::ID::INIT );
 	response.m_Data[0] = 0x21;
 	response.m_Data[1] = 0x1D;
 

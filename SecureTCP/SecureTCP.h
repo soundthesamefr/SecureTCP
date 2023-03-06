@@ -42,14 +42,7 @@ namespace STCP
 	public:
 		enum ID : uint8_t
 		{
-			INIT = 0x0,
-			
-			//
-			// TODO: Implement some REQUEST/RESPONSE system
-			//
-
-			REQUEST = 0x1,
-			RESPONSE = 0x2
+			INIT = 0x0
 		};
 
 		struct Header
