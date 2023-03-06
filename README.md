@@ -46,11 +46,13 @@ Handle Packets through callback
 ```cpp
 void HandlePacket( STCP::Packet& packet, STCP::Server* server, SOCKET client_socket )
 {
+	std::cout << packet.m_Data << std::endl;
+
 	STCP::Packet response;
 	response.m_Data[0] = 0x21;
 	response.m_Data[1] = 0x1D;
-	response.m_Header.m_Size = 2;
-	
+	response.m_Header.Size = 2;
+
 	server->Send( client_socket, response );
 }
 ```
@@ -73,7 +75,7 @@ int main( )
 		char buffer[] = "Hello World!";
 		memcpy(packet.m_Data, buffer, sizeof(buffer));
 
-		packet.m_Header.m_Size = sizeof(buffer);
+		packet.m_Header.Size = sizeof(buffer);
 
 		if( !Client.Send(packet) )
 			std::cout << "Failed to send packet" << std::endl;
@@ -82,13 +84,13 @@ int main( )
 		if( !Client.Recv(&response) )
 			std::cout << "Failed to recv packet" << std::endl;
 
-		std::cout << "Response: " << std::hex << (int)response.m_Data[0] << " " << (int)response.m_Data[1] << std::endl;
+		for (int i = 0; i < response.m_Header.Size; i++)
+			std::cout << response.m_Data[i] << std::endl;
 	}
 	catch ( std::exception& e )
 	{
 		std::cout << e.what( ) << std::endl;
 	}
-
 	return 0;
 }
 ```
