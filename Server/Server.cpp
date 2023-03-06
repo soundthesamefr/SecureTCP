@@ -1,5 +1,19 @@
 #include "Server.h"
 
+void HandlePacket( STCP::Packet& packet, STCP::Server* server, SOCKET client_socket )
+{
+	std::printf( "Received packet with ID: %d\n", packet.m_Header.m_ID );
+
+	STCP::Packet response( STCP::Packet::ID::RESPONSE );
+	response.m_Data[0] = 0x21;
+	response.m_Data[1] = 0x1D;
+
+	response.m_Header.m_Size = 2;
+
+	if ( !server->Send( client_socket, response ) )
+		std::cout << "Failed to send packet" << std::endl;
+}
+
 int main( )
 {
 	using namespace STCP;
@@ -9,7 +23,7 @@ int main( )
 	ServerConfig.Port = 1337;
 
 	try {
-		Server Server(ServerConfig);
+		Server Server( ServerConfig, HandlePacket );
 
 		std::printf("Server started on %s:%d\n", ServerConfig.IP, ServerConfig.Port);
 
@@ -18,5 +32,4 @@ int main( )
 	{
 		std::cout << e.what( ) << std::endl;
 	}
-
 }

@@ -11,7 +11,19 @@ int main( )
 	try {
 		Client Client(ClientConfig);
 
-		std::printf("Client started on %s:%d\n", ClientConfig.IP, ClientConfig.Port);
+		Packet packet(Packet::ID::REQUEST);
+		packet.m_Data[0] = 0x32;
+		packet.m_Data[1] = 0x12;
+		packet.m_Header.m_Size = 2;
+
+		if( !Client.Send(packet) )
+			std::cout << "Failed to send packet" << std::endl;
+
+		Packet response;
+		if( !Client.Recv(&response) )
+			std::cout << "Failed to recv packet" << std::endl;
+
+		std::cout << "Response: " << std::hex << (int)response.m_Data[0] << " " << (int)response.m_Data[1] << std::endl;
 	}
 	catch ( std::exception& e )
 	{

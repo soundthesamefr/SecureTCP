@@ -6,21 +6,20 @@
 
 #define WIN32_LEAN_AND_MEAN
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
+#define INIT_KEY 0x29
 
-#include <iostream>
-#include <string>
-#include <unordered_map>
-#include <thread>
-#include <Windows.h>
-#include <exception>
 #include <WinSock2.h>
 #include <WS2tcpip.h>
-
-#pragma comment (lib, "Ws2_32.lib")
-
+#include <Windows.h>
+#include <exception>
+#include <functional>
+#include <iostream>
+#include <string>
+#include <thread>
+#include <unordered_map>
 #include <sodium.h>
 
-#define INIT_KEY 0x69
+#pragma comment (lib, "Ws2_32.lib")
 
 namespace STCP
 {
@@ -39,6 +38,7 @@ namespace STCP
 	class Packet
 	{
 	public:
+
 		enum ID : unsigned __int8
 		{
 			INIT = 0x0,
@@ -66,14 +66,22 @@ namespace STCP
 	{
 	public:
 
-		Server(Config config);
+		Server(Config config, std::function<void( Packet&, Server*, SOCKET )>);
 
 		bool Send( SOCKET ClientSocket, Packet packet );
 		bool Recv( SOCKET ClientSocket, Packet* packet );
 
+		inline void Stop( )
+		{
+			m_Done = true;
+
+			closesocket( m_ListenSocket );
+		}
+
 	public:
 
 		Config m_Config;
+		std::function<void( Packet&, Server*, SOCKET )> m_Handler;
 
 		WSADATA m_WSAData;
 		SOCKET m_ListenSocket;
@@ -87,6 +95,7 @@ namespace STCP
 		static void HandleClient(SOCKET ClientSocket, Server* Srv);
 
 		std::unordered_map<SOCKET, key_pair> m_KeyMap;
+
 	};
 
 	class Client

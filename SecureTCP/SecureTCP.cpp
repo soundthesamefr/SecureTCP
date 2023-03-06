@@ -1,15 +1,15 @@
 #include "SecureTCP.h"
 
-STCP::Server::Server( STCP::Config config ) : m_Config(config)
+STCP::Server::Server( STCP::Config server_config, std::function<void( Packet&, Server*, SOCKET )> handler ) : m_Config( server_config ), m_Handler( handler )
 {
 	if ( sodium_init( ) == -1 )
 	{
-		throw std::exception("Failed to initialize sodium.");
+		throw std::exception( "Failed to initialize sodium." );
 	}
 
 	if ( crypto_box_keypair( m_KeyPair.public_key, m_KeyPair.secret_key ) == -1 )
 	{
-		throw std::exception("Failed to generate key pair.");
+		throw std::exception( "Failed to generate key pair." );
 	}
 
 	if ( WSAStartup( MAKEWORD( 2, 2 ), &m_WSAData ) != 0 )
@@ -25,12 +25,12 @@ STCP::Server::Server( STCP::Config config ) : m_Config(config)
 		return;
 	}
 
-	sockaddr_in SockAddr;
-	SockAddr.sin_family = AF_INET;
-	SockAddr.sin_port = htons( m_Config.Port );
-	SockAddr.sin_addr.s_addr = inet_addr( m_Config.IP );
-	
-	if ( bind( m_ListenSocket, (SOCKADDR*)(&SockAddr), sizeof( SockAddr ) ) == SOCKET_ERROR )
+	sockaddr_in sock_addr;
+	sock_addr.sin_family = AF_INET;
+	sock_addr.sin_port = htons( m_Config.Port );
+	sock_addr.sin_addr.s_addr = inet_addr( m_Config.IP );
+
+	if ( bind( m_ListenSocket, (SOCKADDR*)(&sock_addr), sizeof( sock_addr ) ) == SOCKET_ERROR )
 	{
 		throw std::exception( "Failed to bind socket." );
 		return;
@@ -42,204 +42,281 @@ STCP::Server::Server( STCP::Config config ) : m_Config(config)
 		return;
 	}
 
-	while ( true )
+	while ( m_Done != true )
 	{
-		SOCKET Client = accept( m_ListenSocket, NULL, NULL );
-		if ( Client != INVALID_SOCKET )
-		{
-			std::printf("Client connected.\n");
-			std::thread( HandleClient, std::move( Client ), this ).detach( );
-		}
+		SOCKET client = accept( m_ListenSocket, NULL, NULL );
+		if ( client != INVALID_SOCKET )
+			std::thread( HandleClient, std::move( client ), this ).detach( );
 	}
 }
 
-bool STCP::Server::Send( SOCKET ClientSocket, Packet packet )
+bool STCP::Server::Send( SOCKET client_socket, Packet packet )
 {
-	auto KPIterator = m_KeyMap.find( ClientSocket );
-	if ( KPIterator != m_KeyMap.end( ) )
+	//
+	// Find the key pair for the client socket
+	//
+
+	auto key_pair_iterator = m_KeyMap.find( client_socket );
+	if ( key_pair_iterator == m_KeyMap.end( ) )
 	{
-		key_pair ClientKP = KPIterator->second;
-
-		unsigned char* EncryptedData = new unsigned char[sizeof( Packet ) + crypto_box_MACBYTES];
-		unsigned char* Nonce = new unsigned char[crypto_box_NONCEBYTES];
-
-		randombytes_buf( Nonce, crypto_box_NONCEBYTES );
-
-		printf("Nonce: ");
-		for ( int i = 0; i < crypto_box_NONCEBYTES; i++ )
-		{
-			printf("%02X ", Nonce[i]);
-		}
-		printf("\n");
-
-		if ( crypto_box_easy( EncryptedData, packet.m_Data, sizeof( Packet ), Nonce, ClientKP.public_key, m_KeyPair.secret_key ) == -1 )
-		{
-			throw std::exception("Failed to encrypt packet.");
-		}
-
-		if ( send( ClientSocket, (char*)Nonce, crypto_box_NONCEBYTES, 0 ) == SOCKET_ERROR )
-		{
-			std::printf( "Failed to send nonce: %d\n", WSAGetLastError() );
-			return false;
-		}
-
-		if ( send( ClientSocket, (char*)EncryptedData, sizeof( Packet ) + crypto_box_MACBYTES, 0 ) == SOCKET_ERROR )
-		{
-			std::printf( "Failed to send encrypted data: %d\n", WSAGetLastError() );
-			return false;
-		}
-
-		delete[] EncryptedData;
-		delete[] Nonce;
+		return false;
 	}
+
+	key_pair client_key_pair = key_pair_iterator->second;
+
+	//
+	// Create arrays for the encrypted data and nonce
+	//
+
+	unsigned char* encrypted_data = new unsigned char[sizeof( Packet ) + crypto_box_MACBYTES];
+	unsigned char* nonce = new unsigned char[crypto_box_NONCEBYTES];
+
+	//
+	// Generate a random nonce and encrypt the packet
+	//
+
+	randombytes_buf( nonce, crypto_box_NONCEBYTES );
+
+	if ( crypto_box_easy( encrypted_data, (unsigned char*)(&packet), sizeof( Packet ), nonce, client_key_pair.public_key, m_KeyPair.secret_key ) == -1 )
+	{
+		return false;
+	}
+
+	//
+	// Send the nonce and encrypted data to the client
+	//
+
+	if ( send( client_socket, (char*)nonce, crypto_box_NONCEBYTES, 0 ) == SOCKET_ERROR )
+	{
+		return false;
+	}
+
+	if ( send( client_socket, (char*)encrypted_data, sizeof( Packet ) + crypto_box_MACBYTES, 0 ) == SOCKET_ERROR )
+	{
+		return false;
+	}
+
+	//
+	// Clean up
+	//
+
+	delete[] encrypted_data;
+	delete[] nonce;
+
+	return true;
 }
 
-bool STCP::Server::Recv( SOCKET ClientSocket, Packet* packet )
+bool STCP::Server::Recv( SOCKET client_socket, Packet* packet )
 {
-	auto KPIterator = m_KeyMap.find( ClientSocket );
-	if ( KPIterator != m_KeyMap.end( ) )
+	//
+	// Find the key pair for the client socket
+	//
+
+	auto key_pair_iterator = m_KeyMap.find( client_socket );
+	if ( key_pair_iterator == m_KeyMap.end( ) )
 	{
-		key_pair ClientKP = KPIterator->second;
-
-		unsigned char* Nonce = new unsigned char[crypto_box_NONCEBYTES];
-		unsigned char* EncryptedData = new unsigned char[packet->m_Header.m_Size + crypto_box_MACBYTES];
-
-		if ( recv( ClientSocket, (char*)Nonce, crypto_box_NONCEBYTES, 0 ) == SOCKET_ERROR )
-		{
-			std::printf( "Failed to recv nonce: %d\n", WSAGetLastError() );
-			return false;
-		}
-
-		if ( recv( ClientSocket, (char*)EncryptedData, packet->m_Header.m_Size + crypto_box_MACBYTES, 0 ) == SOCKET_ERROR )
-		{
-			std::printf( "Failed to recv encrypted data: %d\n", WSAGetLastError() );
-			return false;
-		}
-
-		if ( crypto_box_open_easy( packet->m_Data, EncryptedData, packet->m_Header.m_Size + crypto_box_MACBYTES, Nonce, ClientKP.public_key, m_KeyPair.secret_key ) == -1 )
-		{
-			throw std::exception("Failed to decrypt packet.");
-		}
-
-		delete[] Nonce;
-		delete[] EncryptedData;
+		return false;
 	}
+
+	key_pair client_key_pair = key_pair_iterator->second;
+
+	//
+	// Create arrays for the encrypted data and nonce
+	//
+
+	unsigned char* encrypted_data = new unsigned char[sizeof( Packet ) + crypto_box_MACBYTES];
+	unsigned char* nonce = new unsigned char[crypto_box_NONCEBYTES];
+
+	//
+	// Receive the nonce and encrypted data from the client
+	//
+
+	if ( recv( client_socket, (char*)nonce, crypto_box_NONCEBYTES, 0 ) == SOCKET_ERROR )
+	{
+		return false;
+	}
+
+	if ( recv( client_socket, (char*)encrypted_data, sizeof( Packet ) + crypto_box_MACBYTES, 0 ) == SOCKET_ERROR )
+	{
+		return false;
+	}
+
+	//
+	// Decrypt the packet
+	//
+
+	if ( crypto_box_open_easy( (unsigned char*)packet, encrypted_data, sizeof( Packet ) + crypto_box_MACBYTES, nonce, client_key_pair.public_key, m_KeyPair.secret_key ) == -1 )
+	{
+		return false;
+	}
+
+	//
+	// Clean up
+	//
+
+	delete[] encrypted_data;
+	delete[] nonce;
+
+	return true;
 }
 
 bool STCP::Client::Send( Packet packet )
 {
-	unsigned char* EncryptedData = new unsigned char[sizeof( Packet ) + crypto_box_MACBYTES];
-	unsigned char* Nonce = new unsigned char[crypto_box_NONCEBYTES];
+	//
+	// Create arrays for the encrypted data and nonce
+	//
 
-	randombytes_buf( Nonce, crypto_box_NONCEBYTES );
+	unsigned char* encrypted_data = new unsigned char[sizeof( Packet ) + crypto_box_MACBYTES];
+	unsigned char* nonce = new unsigned char[crypto_box_NONCEBYTES];
 
-	if ( crypto_box_easy( EncryptedData, packet.m_Data, packet.m_Header.m_Size, Nonce, m_ServerKP.public_key, m_KeyPair.secret_key ) == -1 )
+	//
+	// Generate a random nonce and encrypt the packet
+	//
+
+	randombytes_buf( nonce, crypto_box_NONCEBYTES );
+
+	if ( crypto_box_easy( encrypted_data, (unsigned char*)(&packet), sizeof( Packet ), nonce, m_ServerKP.public_key, m_KeyPair.secret_key ) == -1 )
 	{
-		throw std::exception("Failed to encrypt packet.");
-	}
-
-	if ( send( m_ConnectSocket, (char*)Nonce, crypto_box_NONCEBYTES, 0 ) == SOCKET_ERROR )
-	{
-		std::printf( "Failed to send nonce: %d\n", WSAGetLastError() );
 		return false;
 	}
 
-	if ( send( m_ConnectSocket, (char*)EncryptedData, packet.m_Header.m_Size + crypto_box_MACBYTES, 0 ) == SOCKET_ERROR )
+	//
+	// Send the nonce and encrypted data to the server
+	//
+
+	if ( send( m_ConnectSocket, (char*)nonce, crypto_box_NONCEBYTES, 0 ) == SOCKET_ERROR )
 	{
-		std::printf( "Failed to send encrypted data: %d\n", WSAGetLastError() );
 		return false;
 	}
 
-	delete[] EncryptedData;
-	delete[] Nonce;
+	if ( send( m_ConnectSocket, (char*)encrypted_data, sizeof( Packet ) + crypto_box_MACBYTES, 0 ) == SOCKET_ERROR )
+	{
+		return false;
+	}
+
+	//
+	// Clean up
+	//
+
+	delete[] encrypted_data;
+	delete[] nonce;
+
+	return true;
 }
 
 bool STCP::Client::Recv( Packet* packet )
 {
-	unsigned char* Nonce = new unsigned char[crypto_box_NONCEBYTES];
-	unsigned char* EncryptedData = new unsigned char[sizeof( Packet ) + crypto_box_MACBYTES];
+	//
+	// Create arrays for the encrypted data and nonce
+	//
 
-	if ( recv( m_ConnectSocket, (char*)Nonce, crypto_box_NONCEBYTES, 0 ) == SOCKET_ERROR )
+	unsigned char* encrypted_data = new unsigned char[sizeof( Packet ) + crypto_box_MACBYTES];
+	unsigned char* nonce = new unsigned char[crypto_box_NONCEBYTES];
+
+	//
+	// Receive the nonce and encrypted data from the server
+	//
+
+	if ( recv( m_ConnectSocket, (char*)nonce, crypto_box_NONCEBYTES, 0 ) == SOCKET_ERROR )
 	{
-		std::printf( "Failed to recv nonce: %d\n", WSAGetLastError() );
 		return false;
 	}
 
-	if ( recv( m_ConnectSocket, (char*)EncryptedData, sizeof( Packet ) + crypto_box_MACBYTES, 0 ) == SOCKET_ERROR )
+	if ( recv( m_ConnectSocket, (char*)encrypted_data, sizeof( Packet ) + crypto_box_MACBYTES, 0 ) == SOCKET_ERROR )
 	{
-		std::printf( "Failed to recv encrypted data: %d\n", WSAGetLastError() );
 		return false;
 	}
 
-	if ( crypto_box_open_easy( packet->m_Data, EncryptedData, sizeof( Packet ) + crypto_box_MACBYTES, Nonce, m_ServerKP.public_key, m_KeyPair.secret_key ) == -1 )
+	//
+	// Decrypt the packet
+	//
+
+	if ( crypto_box_open_easy( (unsigned char*)packet, encrypted_data, sizeof( Packet ) + crypto_box_MACBYTES, nonce, m_ServerKP.public_key, m_KeyPair.secret_key ) == -1 )
 	{
-		throw std::exception("Failed to decrypt packet.");
+		return false;
 	}
 
-	delete[] Nonce;
-	delete[] EncryptedData;
+	//
+	// Clean up
+	//
+
+	delete[] encrypted_data;
+	delete[] nonce;
+
+	return true;
 }
 
-void STCP::Server::HandleClient( SOCKET ClientSocket, Server* Srv )
+void STCP::Server::HandleClient( SOCKET client_socket, Server* server )
 {
-	Packet ConfirmPacket( Packet::INIT );
-	key_pair ClientKP = { 0 };
+	Packet init_packet( Packet::INIT );
+	*reinterpret_cast<uint8_t*>(init_packet.m_Data) = INIT_KEY;
+	init_packet.m_Header.m_Size = 1;
 
-	if ( send( ClientSocket, (char*)&Srv->m_KeyPair.public_key, sizeof( Srv->m_KeyPair.public_key ), 0 ) == SOCKET_ERROR )
+	key_pair client_key_pair = { 0 };
+
+	//
+	// Send the server's public key to the client
+	//
+
+	if ( send( client_socket, (char*)&server->m_KeyPair.public_key, sizeof( server->m_KeyPair.public_key ), 0 ) == SOCKET_ERROR )
 	{
 		std::printf( "send failed: %d\n", WSAGetLastError( ) );
 		goto exit;
 	}
 
-	if ( recv( ClientSocket, (char*)&ClientKP.public_key, sizeof( ClientKP.public_key ), 0 ) == SOCKET_ERROR )
+	//
+	// Receive the client's public key and add it to the map
+	//
+
+	if ( recv( client_socket, (char*)&client_key_pair.public_key, sizeof( client_key_pair.public_key ), 0 ) == SOCKET_ERROR )
 	{
-		std::printf( "recv failed: %d\n", WSAGetLastError() );
+		std::printf( "recv failed: %d\n", WSAGetLastError( ) );
 		goto exit;
 	}
 
-	Srv->m_KeyMap[ClientSocket] = ClientKP;
+	server->m_KeyMap[client_socket] = client_key_pair;
 
-	*reinterpret_cast<uint8_t*>(ConfirmPacket.m_Data) = INIT_KEY;
-	ConfirmPacket.m_Header.m_Size = 1;
-
-	if ( !Srv->Send( ClientSocket, ConfirmPacket ) )
-	{
-		std::printf("Failed to send confirmation packet.\n");
+	if ( !server->Send( client_socket, init_packet ) )
 		goto exit;
-	}
 
 	while ( true )
 	{
+		Packet packet;
+
+		if ( !server->Recv( client_socket, &packet ) )
+			break;
+
+		server->m_Handler( packet, server, client_socket );
 	}
 
 exit:
-	closesocket(ClientSocket);
+	closesocket( client_socket );
 }
 
-STCP::Client::Client( Config config ) : m_Config(config)
+STCP::Client::Client( Config config ) : m_Config( config )
 {
 	if ( sodium_init( ) == -1 )
 	{
-		throw std::exception("Failed to initialize sodium.");
+		throw std::exception( "Failed to initialize sodium." );
 	}
 
 	if ( WSAStartup( MAKEWORD( 2, 2 ), &m_WSAData ) != 0 )
 	{
-		throw std::exception("Failed to initialize Winsock.");
+		throw std::exception( "Failed to initialize Winsock." );
 	}
 
-	m_ConnectSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	m_ConnectSocket = socket( AF_INET, SOCK_STREAM, IPPROTO_TCP );
 
 	struct addrinfo* result = NULL, * ptr = NULL, hints;
 
-	ZeroMemory(&hints, sizeof(hints));
+	ZeroMemory( &hints, sizeof( hints ) );
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_protocol = IPPROTO_TCP;
 
 	if ( getaddrinfo( m_Config.IP, std::to_string( m_Config.Port ).c_str( ), &hints, &result ) != 0 )
 	{
-		throw std::exception("Failed to get address info.");
+		throw std::exception( "Failed to get address info." );
 	}
 
 	for ( ptr = result; ptr != nullptr; ptr = ptr->ai_next )
@@ -247,31 +324,31 @@ STCP::Client::Client( Config config ) : m_Config(config)
 		m_ConnectSocket = socket( ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol );
 		if ( connect( m_ConnectSocket, ptr->ai_addr, (int)ptr->ai_addrlen ) )
 		{
-			throw std::exception("Failed to connect to server.");
+			throw std::exception( "Failed to connect to server." );
 		}
 		break;
 	}
 
 	if ( crypto_box_keypair( m_KeyPair.public_key, m_KeyPair.secret_key ) == -1 )
 	{
-		throw std::exception("Failed to generate key pair.");
+		throw std::exception( "Failed to generate key pair." );
 	}
 
 	int iResult = recv( m_ConnectSocket, (char*)&m_ServerKP.public_key, sizeof( m_ServerKP.public_key ), 0 );
 
 	if ( iResult == SOCKET_ERROR )
 	{
-		throw std::exception("Failed to receive server key.");
+		throw std::exception( "Failed to receive server key." );
 	}
 
 	if ( iResult != crypto_box_PUBLICKEYBYTES )
 	{
-		throw std::exception("Received invalid server key.");
+		throw std::exception( "Received invalid server key." );
 	}
 
 	if ( send( m_ConnectSocket, (char*)&m_KeyPair.public_key, sizeof( m_KeyPair.public_key ), 0 ) == SOCKET_ERROR )
 	{
-		throw std::exception( "Failed to send client key. ");
+		throw std::exception( "Failed to send client key. " );
 	}
 
 	Packet InitPacket;
@@ -280,9 +357,8 @@ STCP::Client::Client( Config config ) : m_Config(config)
 		throw std::exception( "Failed to receive confirmation packet." );
 	}
 
-	if ( InitPacket.m_Header.m_ID != Packet::INIT 
-		 || *reinterpret_cast<uint8_t*>(InitPacket.m_Data) != INIT_KEY )
+	if ( InitPacket.m_Header.m_ID != Packet::INIT || InitPacket.m_Data[0] != INIT_KEY )
 	{
-		throw std::exception( "Received invalid confirmation packet. ");
+		throw std::exception( "Potentially insecure connection, abort." );
 	}
 }
