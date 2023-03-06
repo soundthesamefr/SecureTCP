@@ -128,7 +128,7 @@ bool STCP::Server::Recv( SOCKET ClientSocket, Packet* packet )
 
 bool STCP::Client::Send( Packet packet )
 {
-	unsigned char* EncryptedData = new unsigned char[packet.m_Header.m_Size + crypto_box_MACBYTES];
+	unsigned char* EncryptedData = new unsigned char[sizeof( Packet ) + crypto_box_MACBYTES];
 	unsigned char* Nonce = new unsigned char[crypto_box_NONCEBYTES];
 
 	randombytes_buf( Nonce, crypto_box_NONCEBYTES );
