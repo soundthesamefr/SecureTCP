@@ -6,29 +6,29 @@
 
 #include "SecureTCP.h"
 
-STCP::Server::Server( STCP::Config server_config, std::function<void( Packet&, Server*, SOCKET )> handler ) : m_Config( server_config ), m_Handler( handler )
+STCP::Server::Server( STCP::Config server_config, std::function<void( Packet&, Server*, SOCKET )> handler )
+	: m_Config( server_config ), m_Handler( handler )
 {
-	if ( sodium_init( ) == -1 )
+	if ( sodium_init( ) == -1 ) 
 	{
-		throw std::exception( "Failed to initialize sodium." );
+		throw std::runtime_error( "Failed to initialize sodium." );
 	}
 
-	if ( crypto_box_keypair( m_KeyPair.public_key, m_KeyPair.secret_key ) == -1 )
+	if ( crypto_box_keypair( m_KeyPair.public_key, m_KeyPair.secret_key ) == -1 ) 
 	{
-		throw std::exception( "Failed to generate key pair." );
+		throw std::runtime_error( "Failed to generate key pair." );
 	}
 
 	if ( WSAStartup( MAKEWORD( 2, 2 ), &m_WSAData ) != 0 )
 	{
-		throw std::exception( "Failed to initialize Winsock." );
+		throw std::runtime_error( "Failed to initialize Winsock." );
 	}
 
 	m_ListenSocket = socket( AF_INET, SOCK_STREAM, IPPROTO_TCP );
 
 	if ( m_ListenSocket == INVALID_SOCKET )
 	{
-		throw std::exception( "Failed to create socket." );
-		return;
+		throw std::runtime_error( "Failed to create socket." );
 	}
 
 	sockaddr_in sock_addr;
@@ -36,23 +36,23 @@ STCP::Server::Server( STCP::Config server_config, std::function<void( Packet&, S
 	sock_addr.sin_port = htons( m_Config.Port );
 	sock_addr.sin_addr.s_addr = inet_addr( m_Config.IP );
 
-	if ( bind( m_ListenSocket, (SOCKADDR*)(&sock_addr), sizeof( sock_addr ) ) == SOCKET_ERROR )
+	if ( bind( m_ListenSocket, reinterpret_cast<SOCKADDR*>(&sock_addr), sizeof( sock_addr ) ) == SOCKET_ERROR )
 	{
-		throw std::exception( "Failed to bind socket." );
-		return;
+		throw std::runtime_error( "Failed to bind socket." );
 	}
 
-	if ( listen( m_ListenSocket, SOMAXCONN ) == SOCKET_ERROR )
+	if ( listen( m_ListenSocket, SOMAXCONN ) == SOCKET_ERROR ) 
 	{
-		throw std::exception( "Failed to listen on socket." );
-		return;
+		throw std::runtime_error( "Failed to listen on socket." );
 	}
 
-	while ( m_Done != true )
+	while ( !m_Done ) 
 	{
 		SOCKET client = accept( m_ListenSocket, NULL, NULL );
 		if ( client != INVALID_SOCKET )
-			std::thread( HandleClient, std::move( client ), this ).detach( );
+		{
+			std::thread( STCP::Server::HandleClient, client, this ).detach( );
+		}
 	}
 }
 
