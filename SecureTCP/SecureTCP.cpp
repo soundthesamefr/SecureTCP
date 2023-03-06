@@ -260,7 +260,7 @@ bool STCP::Client::Recv( Packet* packet )
 void STCP::Server::HandleClient( SOCKET client_socket, Server* server )
 {
 	Packet init_packet( Packet::INIT );
-	*reinterpret_cast<uint8_t*>(init_packet.m_Data) = INIT_KEY;
+	init_packet.m_Data[0] = INIT_KEY;
 	init_packet.m_Header.Size = 1;
 
 	key_pair client_key_pair = { 0 };
