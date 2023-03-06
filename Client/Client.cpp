@@ -22,7 +22,7 @@ int main( )
 		char buffer[] = "Hello World!";
 		memcpy(packet.m_Data, buffer, sizeof(buffer));
 
-		packet.m_Header.m_Size = sizeof(buffer);
+		packet.m_Header.Size = sizeof(buffer);
 
 		if( !Client.Send(packet) )
 			std::cout << "Failed to send packet" << std::endl;

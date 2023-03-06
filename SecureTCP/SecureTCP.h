@@ -40,77 +40,68 @@ namespace STCP
 	class Packet
 	{
 	public:
-
-		enum ID : unsigned __int8
+		enum ID : uint8_t
 		{
 			INIT = 0x0,
+			
+			//
+			// TODO: Implement some REQUEST/RESPONSE system
+			//
+
 			REQUEST = 0x1,
 			RESPONSE = 0x2
 		};
 
+		struct Header
+		{
+			ID ID;
+			uint16_t Size;
+		};
+
 		Packet( ) = default;
-		Packet( ID id ) : m_Header{ id, 0 }
+		explicit Packet( ID id ) : m_Header{ id, 0 }, m_Data{ 0 }
 		{
 		}
 
-	public:
-		struct Header
-		{
-			ID m_ID;
-			unsigned __int16 m_Size;
-		} m_Header;
-
+		Header m_Header;
 		unsigned char m_Data[1024];
-
 	};
 
 	class Server
 	{
 	public:
+		Server( Config config, std::function<void( Packet&, Server*, SOCKET )> handler );
 
-		Server(Config config, std::function<void( Packet&, Server*, SOCKET )>);
+		bool Send( SOCKET client_socket, Packet packet );
+		bool Recv( SOCKET client_socket, Packet* packet );
 
-		bool Send( SOCKET ClientSocket, Packet packet );
-		bool Recv( SOCKET ClientSocket, Packet* packet );
-
-		inline void Stop( )
-		{
-			m_Done = true;
-
-			closesocket( m_ListenSocket );
-		}
+		void Stop( );
 
 	public:
-
 		Config m_Config;
 		std::function<void( Packet&, Server*, SOCKET )> m_Handler;
 
+	private:
 		WSADATA m_WSAData;
 		SOCKET m_ListenSocket;
-
 		key_pair m_KeyPair;
-
 		bool m_Done = false;
-
-	public:
-
-		static void HandleClient(SOCKET ClientSocket, Server* Srv);
 
 		std::unordered_map<SOCKET, key_pair> m_KeyMap;
 
+	public:
+		static void HandleClient( SOCKET client_socket, Server* srv );
 	};
 
 	class Client
 	{
 	public:
-
 		Client(Config config);
 
 		bool Send(Packet packet);
 		bool Recv(Packet* packet);
 
 	public:
-		
 		Config m_Config;
 
 		WSADATA m_WSAData;

@@ -166,6 +166,11 @@ bool STCP::Server::Recv( SOCKET client_socket, Packet* packet )
 	return true;
 }
 
+void STCP::Server::Stop( )
+{
+	m_Done = true;
+}
+
 bool STCP::Client::Send( Packet packet )
 {
 	//
@@ -256,7 +261,7 @@ void STCP::Server::HandleClient( SOCKET client_socket, Server* server )
 {
 	Packet init_packet( Packet::INIT );
 	*reinterpret_cast<uint8_t*>(init_packet.m_Data) = INIT_KEY;
-	init_packet.m_Header.m_Size = 1;
+	init_packet.m_Header.Size = 1;
 
 	key_pair client_key_pair = { 0 };
 
@@ -363,7 +368,7 @@ STCP::Client::Client( Config config ) : m_Config( config )
 		throw std::exception( "Failed to receive confirmation packet." );
 	}
 
-	if ( InitPacket.m_Header.m_ID != Packet::INIT || InitPacket.m_Data[0] != INIT_KEY )
+	if ( InitPacket.m_Header.ID != Packet::INIT || InitPacket.m_Data[0] != INIT_KEY )
 	{
 		throw std::exception( "Potentially insecure connection, abort." );
 	}
