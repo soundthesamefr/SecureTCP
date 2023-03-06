@@ -371,6 +371,8 @@ STCP::Client::Client( Config config ) : m_Config( config )
 
 	if ( InitPacket.m_Header.ID != Packet::INIT || InitPacket.m_Data[0] != INIT_KEY )
 	{
-		throw std::exception( "Potentially insecure connection, abort." );
+		//
+		// TODO: Handle this
+		//
 	}
 }
