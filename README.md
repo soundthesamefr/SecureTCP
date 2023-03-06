@@ -1,7 +1,7 @@
 
 # SecureTCP
 
-TCP server framework for Windows that incorperates public-key encryption. 
+Base TCP server framework for Windows that incorperates public-key encryption. 
 
 
 ## Network Analysis
